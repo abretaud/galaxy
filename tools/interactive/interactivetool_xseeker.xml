@@ -1,0 +1,71 @@
+<tool id="interactive_tool_xseeker" tool_type="interactive" name="xseeker" version="1.0.0">
+    <description>Visualization and annotation of LC-MSMS data tool</description>
+    <requirements>
+        <container type="docker">emetabohub/xseeker:1.0.0</container>
+    </requirements>
+    <entry_points>
+        <entry_point name="XSeeker visualisation of $infile.display_name" requires_domain="True">
+            <port>8765</port>
+            <url>/</url>
+        </entry_point>
+    </entry_points>
+    <environment_variables>
+        <environment_variable name="HISTORY_ID" strip="True">${__app__.security.encode_id($jupyter_notebook.history_id)}</environment_variable> <!-- FIXME: Warning: The use of __app__ is deprecated and will break backward compatibility in the near future -->
+        <environment_variable name="REMOTE_HOST">${__app__.config.galaxy_infrastructure_url}</environment_variable>
+        <environment_variable name="GALAXY_WEB_PORT">8080</environment_variable>
+        <environment_variable name="GALAXY_URL">${__app__.config.galaxy_infrastructure_url}</environment_variable>
+        <environment_variable name="API_KEY" strip="True">
+            #if $__user__:
+                #for $api_key in $__user__.api_keys:
+                    ${api_key.key}
+                    #break
+                #end for
+            #end if
+        </environment_variable>
+        <environment_variable name="DOCKER">TRUE</environment_variable>
+    </environment_variables>
+    <command><![CDATA[
+        ln -s ${infile} /XSeeker/input/test.sqlite
+        &&  /entrypoint.sh
+    ]]>
+    </command>
+    <inputs>
+        <param name="infile" type="data" format="binary" label="An sqlite file processed by XSeeker Preprocessor"/>
+    </input>
+    <outputs>
+        <data name="outfile" format="txt" />
+    </outputs>
+    <tests>
+    </tests>
+    <help>
+<![CDATA[
+XSeeker is a tool to visualise and annote data from LC-MSMS.
+
+The prefered workflows to process your data is:
+
+{mzxml} -> xcms{rdata} -> camera{rdata} -> XSeekerPreparator{sqlite} -> XSeeker
+
+But it is still possible to only do:
+
+{mzxml} -> xcms{rdata} -> camera{rdata} -> XSeeker
+
+This way, you will have to choose the files you want to visualize, but it will take some time to import them.
+
+XSeeker can output csv, tsv and mzTab files, so annotations can be used in other programs and/or is human readable/writable.
+
+XSeeker can also output an sqlite file, exactly like the one it takes in input. This file can be used to stop your anotation and resume the process later. It's like an XSeeker save file.
+
+
+]]>
+    </help>
+    <citations>
+       <citation type="bibtex">
+       @misc{
+            author       = {Lain Pavot - lain.pavot@inrae.fr },
+            title        = {{XSeeker -  A tool to visualise and annote data from LC-MSMS }},
+            publisher    = {INRAE},
+            url          = {}
+        }
+    }</citation>
+    </citations>
+</tool>

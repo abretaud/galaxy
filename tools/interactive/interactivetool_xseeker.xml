@@ -31,7 +31,7 @@
     </command>
     <inputs>
         <param name="infile" type="data" format="binary" label="An sqlite file processed by XSeeker Preprocessor"/>
-    </input>
+    </inputs>
     <outputs>
         <data name="outfile" format="txt" />
     </outputs>

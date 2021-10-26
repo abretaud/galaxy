@@ -17,6 +17,7 @@ from json import dumps
 from typing import Optional
 
 import h5py
+import numpy as np
 import pysam
 import pysam.bcftools
 from bx.seq.twobit import TWOBIT_MAGIC_NUMBER, TWOBIT_MAGIC_NUMBER_SWAP
@@ -234,6 +235,33 @@ class Meryldb(CompressedArchive):
         except Exception as e:
             log.warning('%s, sniff Exception: %s', self, e)
         return False
+
+
+class Bref3(Binary):
+    """Bref3 format is a binary format for storing phased, non-missing genotypes for a list of samples."""
+
+    file_ext = "bref3"
+
+    def __init__(self, **kwd):
+        super().__init__(**kwd)
+        self._magic = binascii.unhexlify("7a8874f400156272")
+
+    def sniff_prefix(self, sniff_prefix):
+        return sniff_prefix.startswith_bytes(self._magic)
+
+    def set_peek(self, dataset, is_multi_byte=False):
+        if not dataset.dataset.purged:
+            dataset.peek = "Binary bref3 file"
+            dataset.blurb = nice_size(dataset.get_size())
+        else:
+            dataset.peek = 'file does not exist'
+            dataset.blurb = 'file purged from disk'
+
+    def display_peek(self, dataset):
+        try:
+            return dataset.peek
+        except Exception:
+            return f"Binary bref3 file ({nice_size(dataset.get_size())})"
 
 
 class DynamicCompressedArchive(CompressedArchive):
@@ -935,7 +963,12 @@ class Loom(H5):
                 dataset.metadata.description = loom_file.attrs.get('description')
                 dataset.metadata.url = loom_file.attrs.get('url')
                 dataset.metadata.doi = loom_file.attrs.get('doi')
-                dataset.metadata.loom_spec_version = loom_file.attrs.get('LOOM_SPEC_VERSION')
+                loom_spec_version = loom_file.attrs.get('LOOM_SPEC_VERSION')
+                if isinstance(loom_spec_version, np.ndarray):
+                    loom_spec_version = loom_spec_version[0]
+                    if isinstance(loom_spec_version, bytes):
+                        loom_spec_version = loom_spec_version.decode()
+                dataset.metadata.loom_spec_version = loom_spec_version
                 dataset.creation_date = loom_file.attrs.get('creation_date')
                 dataset.metadata.shape = tuple(loom_file['matrix'].shape)
 

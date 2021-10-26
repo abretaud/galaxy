@@ -13,6 +13,7 @@ from webob.compat import cgi_FieldStorage
 
 import galaxy.model
 from galaxy import util
+from galaxy.files import ProvidesUserFileSourcesUserContext
 from galaxy.tool_util.parser import get_input_source as ensure_input_source
 from galaxy.util import (
     dbkeys,
@@ -1108,6 +1109,7 @@ class SelectTagParameter(SelectToolParameter):
     """
     Select set that is composed of a set of tags available for an input.
     """
+
     def __init__(self, tool, input_source):
         input_source = ensure_input_source(input_source)
         super().__init__(tool, input_source)
@@ -1378,8 +1380,14 @@ class ColumnListParameter(SelectToolParameter):
             # Use representative dataset if a dataset collection is parsed
             if isinstance(dataset, trans.app.model.HistoryDatasetCollectionAssociation):
                 dataset = dataset.to_hda_representative()
-            if is_runtime_value(dataset) or not dataset.has_data():
+            if isinstance(dataset, trans.app.model.DatasetInstance):
+                return not dataset.has_data()
+            if is_runtime_value(dataset):
                 return True
+            else:
+                msg = f"Dataset '{dataset}' for data_ref attribute '{self.data_ref}' of parameter '{self.name}' is not a DatasetInstance"
+                log.debug(msg, exc_info=True)
+                raise ParameterValueError(msg, self.name)
         return False
 
     def get_dependencies(self):
@@ -1900,13 +1908,12 @@ class DataToolParameter(BaseDataToolParameter):
                         rval.append(trans.sa_session.query(trans.app.model.LibraryDatasetDatasetAssociation).get(decoded_id))
                     else:
                         raise ValueError("Unknown input source %s passed to job submission API." % single_value['src'])
-                elif isinstance(single_value, trans.app.model.HistoryDatasetCollectionAssociation):
-                    rval.append(single_value)
-                elif isinstance(single_value, trans.app.model.DatasetCollectionElement):
-                    rval.append(single_value)
-                elif isinstance(single_value, trans.app.model.HistoryDatasetAssociation):
-                    rval.append(single_value)
-                elif isinstance(single_value, trans.app.model.LibraryDatasetDatasetAssociation):
+                elif isinstance(single_value, (
+                        trans.app.model.HistoryDatasetCollectionAssociation,
+                        trans.app.model.DatasetCollectionElement,
+                        trans.app.model.HistoryDatasetAssociation,
+                        trans.app.model.LibraryDatasetDatasetAssociation
+                )):
                     rval.append(single_value)
                 else:
                     if len(str(single_value)) == 16:
@@ -1919,7 +1926,7 @@ class DataToolParameter(BaseDataToolParameter):
                 for val in rval:
                     if not isinstance(val, trans.app.model.HistoryDatasetCollectionAssociation):
                         raise ParameterValueError("if collections are supplied to multiple data input parameter, only collections may be used", self.name)
-        elif isinstance(value, trans.app.model.HistoryDatasetAssociation):
+        elif isinstance(value, (trans.app.model.HistoryDatasetAssociation, trans.app.model.LibraryDatasetDatasetAssociation)):
             rval = value
         elif isinstance(value, dict) and 'src' in value and 'id' in value:
             if value['src'] == 'hda':
@@ -2103,8 +2110,8 @@ class DataToolParameter(BaseDataToolParameter):
                 continue
 
         # sort both lists
-        d['options']['hda'] = sorted(d['options']['hda'], key=lambda k: k['hid'], reverse=True)
-        d['options']['hdca'] = sorted(d['options']['hdca'], key=lambda k: k['hid'], reverse=True)
+        d['options']['hda'] = sorted(d['options']['hda'], key=lambda k: k.get('hid', -1), reverse=True)
+        d['options']['hdca'] = sorted(d['options']['hdca'], key=lambda k: k.get('hid', -1), reverse=True)
 
         # return final dictionary
         return d
@@ -2270,7 +2277,7 @@ class DataCollectionToolParameter(BaseDataToolParameter):
             })
 
         # sort both lists
-        d['options']['hdca'] = sorted(d['options']['hdca'], key=lambda k: k['hid'], reverse=True)
+        d['options']['hdca'] = sorted(d['options']['hdca'], key=lambda k: k.get('hid', -1), reverse=True)
 
         # return final dictionary
         return d
@@ -2407,6 +2414,16 @@ class DirectoryUriToolParameter(SimpleTextToolParameter):
     def __init__(self, tool, input_source, context=None):
         input_source = ensure_input_source(input_source)
         SimpleTextToolParameter.__init__(self, tool, input_source)
+
+    def validate(self, value, trans=None):
+        super().validate(value, trans=trans)
+        if not value:
+            return  # value is not set yet, do not validate
+        file_source = trans.app.file_sources.get_file_source_path(value).file_source
+        user_context = ProvidesUserFileSourcesUserContext(trans)
+        user_has_access = file_source.user_has_access(user_context)
+        if not user_has_access:
+            raise ParameterValueError(f"The user cannot access {value}.", self.name)
 
 
 class RulesListToolParameter(BaseJsonToolParameter):

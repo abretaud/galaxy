@@ -9,6 +9,7 @@ import requests
 
 from galaxy import web
 from galaxy.util import (
+    DEFAULT_SOCKET_TIMEOUT,
     Params,
     unicodify,
 )
@@ -88,7 +89,8 @@ class ASync(BaseUIController):
                     raise Exception("Error: ToolOutput object not found")
 
                 original_history = trans.sa_session.query(trans.app.model.History).get(data.history_id)
-                tool.execute(trans, incoming=params, history=original_history)
+                job, *_ = tool.execute(trans, incoming=params, history=original_history)
+                trans.app.job_manager.enqueue(job, tool=tool)
             else:
                 log.debug('async error -> %s' % STATUS)
                 trans.log_event('Async error -> %s' % STATUS)
@@ -149,7 +151,7 @@ class ASync(BaseUIController):
             trans.sa_session.add(trans.history)
             trans.sa_session.flush()
             # Need to explicitly create the file
-            data.dataset.object_store.create(data)
+            data.dataset.object_store.create(data.dataset)
             trans.log_event("Added dataset %d to history %d" % (data.id, trans.history.id), tool_id=tool_id)
 
             try:
@@ -168,7 +170,7 @@ class ASync(BaseUIController):
                 url = "{}{}{}".format(url, url_join_char, urlencode(params.flatten()))
                 log.debug("connecting to -> %s" % url)
                 trans.log_event("Async connecting to -> %s" % url)
-                text = requests.get(url).text.strip()
+                text = requests.get(url, timeout=DEFAULT_SOCKET_TIMEOUT).text.strip()
                 if not text.endswith('OK'):
                     raise Exception(text)
                 data.state = data.blurb = data.states.RUNNING

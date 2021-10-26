@@ -1,6 +1,8 @@
 import json
-import time
 import unittest
+
+import pytest
+import requests
 
 from galaxy_test.base.populators import (
     DatasetCollectionPopulator,
@@ -91,15 +93,26 @@ class LibrariesApiTestCase(ApiTestCase):
     def test_show_private_dataset_permissions(self):
         library, library_dataset = self.library_populator.new_library_dataset_in_private_library("ForCreateDatasets", wait=True)
         with self._different_user():
-            response = self.library_populator.show_ldda(library["id"], library_dataset["id"])
+            with pytest.raises(requests.exceptions.HTTPError) as exc_info:
+                self.library_populator.show_ld(library["id"], library_dataset["id"])
             # TODO: this should really be 403 and a proper JSON exception.
-            self._assert_status_code_is(response, 400)
+            self._assert_status_code_is(exc_info.value.response, 400)
 
     def test_create_dataset(self):
         library, library_dataset = self.library_populator.new_library_dataset_in_private_library("ForCreateDatasets", wait=True)
         self._assert_has_keys(library_dataset, "peek", "data_type")
         assert library_dataset["peek"].find("create_test") >= 0
         assert library_dataset["file_ext"] == "txt", library_dataset["file_ext"]
+        # Get library dataset (same as library_dataset)
+        library_dataset_from_show = self.library_populator.show_ld(library["id"], library_dataset["id"])
+        assert library_dataset_from_show["id"] == library_dataset["id"]
+        assert library_dataset_from_show["parent_library_id"] == library["id"]
+        assert library_dataset_from_show["folder_id"] == library["root_folder_id"]
+        # Get library dataset dataset association
+        ldda = self.library_populator.show_ldda(library_dataset_from_show["ldda_id"])
+        assert ldda["library_dataset_id"] == library_dataset["id"]
+        assert ldda["parent_library_id"] == library["id"]
+        assert ldda["file_ext"] == "txt"
 
     def test_fetch_upload_to_folder(self):
         history_id, library, destination = self._setup_fetch_to_folder("flat_zip")
@@ -283,44 +296,43 @@ class LibrariesApiTestCase(ApiTestCase):
         container_update_time = container_fetch_response.json()['folder_contents'][0]['update_time']
         assert dataset_update_time == container_update_time, container_fetch_response
 
-    def test_update_dataset_in_folder(self):
-        ld = self._create_dataset_in_folder_in_library("ForUpdateDataset", wait=True)
-        data = {'name': 'updated_name', 'file_ext': 'fastq', 'misc_info': 'updated_info', 'genome_build': 'updated_genome_build'}
-        create_response = self._patch("libraries/datasets/%s" % ld.json()["id"], data=data)
+    def _patch_library_dataset(self, library_dataset_id, data):
+        create_response = self._patch(f"libraries/datasets/{library_dataset_id}", data=data)
         self._assert_status_code_is(create_response, 200)
-        self._assert_has_keys(create_response.json(), "name", "file_ext", "misc_info", "genome_build")
+        ld = create_response.json()
+        library_id = ld['parent_library_id']
+        return self.library_populator.wait_on_library_dataset(library_id, ld["id"])
+
+    def test_update_dataset_in_folder(self):
+        ld = self._create_dataset_in_folder_in_library("ForUpdateDataset", content=">seq\nATGC", wait=True).json()
+        data = {'name': 'updated_name', 'file_ext': 'fasta', 'misc_info': 'updated_info', 'genome_build': 'updated_genome_build'}
+        ld_updated = self._patch_library_dataset(ld['id'], data)
+        self._assert_has_keys(ld_updated, "name", "file_ext", "misc_info", "genome_build")
 
     def test_update_dataset_tags(self):
-        ld = self._create_dataset_in_folder_in_library("ForTagtestDataset")
+        ld = self._create_dataset_in_folder_in_library("ForTagtestDataset", wait=True).json()
         data = {"tags": ["#Lancelot", "name:Holy Grail", "blue"]}
-        create_response = self._patch("libraries/datasets/%s" % ld.json()["id"], data=data)
-        self._assert_status_code_is(create_response, 200)
-        self._assert_has_keys(create_response.json(), "tags")
-        assert create_response.json()["tags"] == "name:Lancelot, name:HolyGrail, blue"
+        ld_updated = self._patch_library_dataset(ld['id'], data)
+        self._assert_has_keys(ld_updated, "tags")
+        assert ld_updated["tags"] == "name:Lancelot, name:HolyGrail, blue"
 
     def test_invalid_update_dataset_in_folder(self):
-        ld = self._create_dataset_in_folder_in_library("ForInvalidUpdateDataset")
+        ld = self._create_dataset_in_folder_in_library("ForInvalidUpdateDataset", wait=True).json()
         data = {'file_ext': 'nonexisting_type'}
-        create_response = self._patch("libraries/datasets/%s" % ld.json()["id"], data=data)
+        create_response = self._patch("libraries/datasets/{}".format(ld["id"]), data=data)
         self._assert_status_code_is(create_response, 400)
         assert 'This Galaxy does not recognize the datatype of:' in create_response.json()['err_msg']
 
     def test_detect_datatype_of_dataset_in_folder(self):
-        ld = self._create_dataset_in_folder_in_library("ForDetectDataset")
-        # Wait for metadata job to finish.
-        time.sleep(2)
+        ld = self._create_dataset_in_folder_in_library("ForDetectDataset", wait=True).json()
         data = {'file_ext': 'data'}
-        create_response = self._patch("libraries/datasets/%s" % ld.json()["id"], data=data)
-        self._assert_status_code_is(create_response, 200)
-        self._assert_has_keys(create_response.json(), "file_ext")
-        assert create_response.json()["file_ext"] == "data"
-        # Wait for metadata job to finish.
-        time.sleep(2)
+        ld_updated = self._patch_library_dataset(ld['id'], data)
+        self._assert_has_keys(ld_updated, "file_ext")
+        assert ld_updated["file_ext"] == "data"
         data = {'file_ext': 'auto'}
-        create_response = self._patch("libraries/datasets/%s" % ld.json()["id"], data=data)
-        self._assert_status_code_is(create_response, 200)
-        self._assert_has_keys(create_response.json(), "file_ext")
-        assert create_response.json()["file_ext"] == "txt"
+        ld_updated = self._patch_library_dataset(ld['id'], data)
+        self._assert_has_keys(ld_updated, "file_ext")
+        assert ld_updated["file_ext"] == "txt"
 
     def test_ldda_collection_import_to_history(self):
         self._import_to_history(visible=True)
@@ -425,13 +437,13 @@ class LibrariesApiTestCase(ApiTestCase):
         )
         return self._post("folders/%s" % containing_folder_id, data=create_data)
 
-    def _create_dataset_in_folder_in_library(self, library_name, wait=False):
+    def _create_dataset_in_folder_in_library(self, library_name, content="1 2 3", wait=False):
         library = self.library_populator.new_private_library(library_name)
         folder_response = self._create_folder(library)
         self._assert_status_code_is(folder_response, 200)
         folder_id = folder_response.json()[0]['id']
         history_id = self.dataset_populator.new_history()
-        hda_id = self.dataset_populator.new_dataset(history_id, content="1 2 3", wait=wait)['id']
+        hda_id = self.dataset_populator.new_dataset(history_id, content=content, wait=wait)['id']
         payload = {'from_hda_id': hda_id, 'create_type': 'file', 'folder_id': folder_id}
         ld = self._post("libraries/%s/contents" % folder_id, payload)
         return ld

@@ -1844,6 +1844,14 @@ class Tool(Dictifiable):
         """
         return self._view.get_requirements_status({self.id: self.tool_requirements}, self.installed_tool_dependencies)
 
+    @property
+    def output_discover_patterns(self):
+        # patterns to collect for remote job execution
+        patterns = []
+        for output in self.outputs.values():
+            patterns.extend(output.output_discover_patterns)
+        return patterns
+
     def build_redirect_url_params(self, param_dict):
         """
         Substitute parameter values into self.redirect_url_params
@@ -2598,10 +2606,11 @@ class SetMetadataTool(Tool):
 
     def regenerate_imported_metadata_if_needed(self, hda, history, job):
         if len(hda.metadata_file_types) > 0:
-            self.tool_action.execute_via_app(
+            job, *_ = self.tool_action.execute_via_app(
                 self, self.app, job.session_id,
                 history.id, job.user, incoming={'input1': hda}, overwrite=False
             )
+            self.app.job_manager.enqueue(job=job, tool=self)
 
     def exec_after_process(self, app, inp_data, out_data, param_dict, job=None, **kwds):
         working_directory = app.object_store.get_filename(

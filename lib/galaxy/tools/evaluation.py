@@ -86,7 +86,7 @@ class ToolEvaluator:
         if get_special:
             special = get_special()
             if special:
-                out_data["output_file"] = special.fda
+                out_data["output_file"] = special
 
         # These can be passed on the command line if wanted as $__user_*__
         incoming.update(model.User.user_template_environment(job.history and job.history.user))
@@ -272,17 +272,17 @@ class ToolEvaluator:
         # - Only necessary when self.check_values is False (==external dataset
         #   tool?: can this be abstracted out as part of being a datasouce tool?)
         # For now we try to not wrap unnecessarily, but this should be untangled at some point.
+        matches = None
         for name, data in input_datasets.items():
             param_dict_value = param_dict.get(name, None)
             if data and param_dict_value is None:
                 # We may have a nested parameter that is not fully prefixed.
                 # We try recovering from param_dict, but tool authors should really use fully-qualified
                 # variables
-                wrappers = find_instance_nested(param_dict,
-                                                instances=(DatasetFilenameWrapper, DatasetListWrapper),
-                                                match_key=name)
-                if len(wrappers) == 1:
-                    wrapper = wrappers[0]
+                if matches is None:
+                    matches = find_instance_nested(param_dict, instances=(DatasetFilenameWrapper, DatasetListWrapper))
+                wrapper = matches.get(name)
+                if wrapper:
                     param_dict[name] = wrapper
                     continue
             if not isinstance(param_dict_value, (DatasetFilenameWrapper, DatasetListWrapper)):

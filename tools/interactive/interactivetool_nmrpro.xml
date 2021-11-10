@@ -1,0 +1,40 @@
+<tool id="interactive_tool_nmrpro" tool_type="interactive" name="nmrpro" version="1.0.1">
+    <description>Visualization of NMR spectra (1D &amp; 2D)</description>
+    <requirements>
+        <container type="docker">emetabohub/nmrpro:1.0.1</container>
+    </requirements>
+    <entry_points>
+        <entry_point name="nmrpro visualisation of $infile.display_name" requires_domain="True">
+            <port>8000</port>
+            <url>/viewSpectrum/input.tar.gz</url>
+        </entry_point>
+    </entry_points>
+    <command><![CDATA[
+        cp ${infile} /nmrpro_server/input.tar.gz
+        && python /nmrpro_server/manage.py runserver 0.0.0.0:8000
+    ]]>
+    </command>
+    <inputs>
+        <param name="infile" type="data" format="binary" label="An tar.gz file containing nmr spectra"/>
+    </inputs>
+    <outputs>
+        <data name="file_output" format="txt" />
+    </outputs>
+    <tests>
+    </tests>
+    <help>
+<![CDATA[
+    
+]]>
+    </help>
+    <citations>
+       <citation type="bibtex">
+       @misc{
+            author       = {Lain Pavot - lain.pavot@inrae.fr (wrapper), Ahmed Mohamed (tool) },
+            title        = {{nmrpro -  A tool to visualise and annote data from LC-MSMS }},
+            publisher    = {INRAE},
+            url          = {https://github.com/ahmohamed/nmrpro}
+        }
+    }</citation>
+    </citations>
+</tool>
